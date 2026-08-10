@@ -4,7 +4,7 @@ import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.tags.TagKey;
 import net.minecraft.world.level.block.Block;
-import net.minecraftforge.registries.ForgeRegistries;
+import net.minecraft.core.registries.BuiltInRegistries;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -16,10 +16,10 @@ public class OreRegistryManager {
         ALL_FOUND_ORES.clear();
         TagKey<Block> forgeOresTag = TagKey.create(Registries.BLOCK, new ResourceLocation("forge", "ores"));
         System.out.println("=== OreRegistryManager: список всех руд с тегом forge:ores ===");
-        for (Block block : ForgeRegistries.BLOCKS) {
+        for (Block block : BuiltInRegistries.BLOCK) {
             if (block.defaultBlockState().is(forgeOresTag)) {
                 ALL_FOUND_ORES.add(block);
-                ResourceLocation id = ForgeRegistries.BLOCKS.getKey(block);
+                ResourceLocation id = BuiltInRegistries.BLOCK.getKey(block);
                 System.out.println(id); // выводим полный идентификатор, например "create:zinc_ore"
             }
         }

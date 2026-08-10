@@ -1,0 +1,22 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "DRD",
+    "DGD",
+    "DDD"
+  ],
+  "key": {
+    "D": {
+      "item": "minecraft:diamond_block"
+    },
+    "R": {
+      "item": "minecraft:redstone"
+    },
+    "G": {
+      "item": "rudo-locator:gold_ore_locator"
+    }
+  },
+  "result": {
+    "item": "rudo-locator:diamond_ore_locator"
+  }
+}

@@ -1,30 +1,19 @@
 package com.kompi.orelocator.network;
 
-import com.kompi.orelocator.OreLocatorMod;
+import com.kompi.orelocator.RudoLocator;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraftforge.network.NetworkRegistry;
-import net.minecraftforge.network.simple.SimpleChannel;
 
 public class ModNetwork {
-    private static final String PROTOCOL_VERSION = "1";
-    public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
-            new ResourceLocation(OreLocatorMod.MODID, "main"),
-            () -> PROTOCOL_VERSION,
-            PROTOCOL_VERSION::equals,
-            PROTOCOL_VERSION::equals
-    );
+    public static final ResourceLocation ORE_HIGHLIGHT_PACKET = RudoLocator.id("ore_highlight");
+    public static final ResourceLocation SYNC_ORE_FILTER_PACKET = RudoLocator.id("sync_ore_filter");
 
     public static void init() {
-        CHANNEL.messageBuilder(OreHighlightPacket.class, 0)
-                .encoder(OreHighlightPacket::encode)
-                .decoder(OreHighlightPacket::decode)
-                .consumerNetworkThread(OreHighlightPacket::handle)
-                .add();
-
-        CHANNEL.messageBuilder(SyncOreFilterPacket.class, 1)
-                .encoder(SyncOreFilterPacket::encode)
-                .decoder(SyncOreFilterPacket::decode)
-                .consumerNetworkThread(SyncOreFilterPacket::handle)
-                .add();
+        // Сервер принимает SyncOreFilterPacket от клиента
+        ServerPlayNetworking.registerGlobalReceiver(SYNC_ORE_FILTER_PACKET,
+                (server, player, handler, buf, responseSender) -> {
+                    SyncOreFilterPacket packet = SyncOreFilterPacket.decode(buf);
+                    SyncOreFilterPacket.handleServer(packet, server, player);
+                });
     }
 }

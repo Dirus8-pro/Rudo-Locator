@@ -2,11 +2,8 @@ package com.kompi.orelocator.network;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.FriendlyByteBuf;
-import net.minecraftforge.network.NetworkEvent;
-
 import java.util.ArrayList;
 import java.util.List;
-import java.util.function.Supplier;
 
 public class OreHighlightPacket {
     private final List<BlockPos> orePositions;
@@ -17,10 +14,14 @@ public class OreHighlightPacket {
         this.gameTime = gameTime;
     }
 
-    public static void encode(OreHighlightPacket msg, FriendlyByteBuf buf) {
-        buf.writeLong(msg.gameTime);
-        buf.writeVarInt(msg.orePositions.size());
-        for (BlockPos pos : msg.orePositions) {
+    // Методы get для обработчика
+    public List<BlockPos> getOrePositions() { return orePositions; }
+    public long getGameTime() { return gameTime; }
+
+    public void encode(FriendlyByteBuf buf) {
+        buf.writeLong(gameTime);
+        buf.writeVarInt(orePositions.size());
+        for (BlockPos pos : orePositions) {
             buf.writeBlockPos(pos);
         }
     }
@@ -33,13 +34,5 @@ public class OreHighlightPacket {
             positions.add(buf.readBlockPos());
         }
         return new OreHighlightPacket(positions, time);
-    }
-
-    public static void handle(OreHighlightPacket msg, Supplier<NetworkEvent.Context> ctx) {
-        ctx.get().enqueueWork(() -> {
-            // Клиентская обработка – сохраняем список в статическое поле
-            com.kompi.orelocator.event.ClientModEvents.setHighlightedOres(msg.orePositions, msg.gameTime);
-        });
-        ctx.get().setPacketHandled(true);
     }
 }

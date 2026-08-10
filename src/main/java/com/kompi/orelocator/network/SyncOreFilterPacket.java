@@ -1,14 +1,12 @@
 package com.kompi.orelocator.network;
 
-import com.kompi.orelocator.client.OreFilterHolder;
 import com.kompi.orelocator.xray.OreFilterStorage;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraftforge.network.NetworkEvent;
-import net.minecraftforge.network.PacketDistributor;
-
-import java.util.function.Supplier;
+import net.minecraft.server.MinecraftServer;
+import net.fabricmc.fabric.api.networking.v1.PlayerLookup;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 
 public class SyncOreFilterPacket {
     private final CompoundTag filter;
@@ -17,31 +15,23 @@ public class SyncOreFilterPacket {
         this.filter = filter;
     }
 
-    public CompoundTag getFilter() {
-        return filter;
-    }
+    public CompoundTag getFilter() { return filter; }
 
-    public static void encode(SyncOreFilterPacket msg, FriendlyByteBuf buf) {
-        buf.writeNbt(msg.filter);
+    public void encode(FriendlyByteBuf buf) {
+        buf.writeNbt(filter);
     }
 
     public static SyncOreFilterPacket decode(FriendlyByteBuf buf) {
         return new SyncOreFilterPacket(buf.readNbt());
     }
 
-    public static void handle(SyncOreFilterPacket msg, Supplier<NetworkEvent.Context> ctx) {
-        ctx.get().enqueueWork(() -> {
-            ServerPlayer player = ctx.get().getSender();
-            if (player != null) {
-                // Серверная сторона: сохраняем в файл и рассылаем всем
-                OreFilterStorage.saveFilter(msg.filter);
-                player.getPersistentData().put("OreFilter", msg.filter);
-                ModNetwork.CHANNEL.send(PacketDistributor.ALL.noArg(), new SyncOreFilterPacket(msg.filter));
-            } else {
-                // Клиентская сторона: просто сохраняем в держатель
-                OreFilterHolder.setFilter(msg.filter);
-            }
-        });
-        ctx.get().setPacketHandled(true);
+    public static void handleServer(SyncOreFilterPacket msg, MinecraftServer server, ServerPlayer player) {
+        OreFilterStorage.saveFilter(msg.filter);
+        // Рассылаем всем игрокам, передавая буфер с данными
+        FriendlyByteBuf buf = new FriendlyByteBuf(io.netty.buffer.Unpooled.buffer());
+        msg.encode(buf);
+        for (ServerPlayer p : PlayerLookup.all(server)) {
+            ServerPlayNetworking.send(p, ModNetwork.SYNC_ORE_FILTER_PACKET, buf);
+        }
     }
 }

@@ -5,13 +5,13 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraftforge.fml.loading.FMLPaths;
+import net.fabricmc.loader.api.FabricLoader;
 
 import java.io.*;
 import java.nio.file.*;
 
 public class OreFilterStorage {
-    private static final Path FILE_PATH = FMLPaths.GAMEDIR.get().resolve("config/orelocator/filter.json");
+    private static final Path FILE_PATH = FabricLoader.getInstance().getGameDir().resolve("config/orelocator/filter.json");
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     public static void saveFilter(CompoundTag filter) {
