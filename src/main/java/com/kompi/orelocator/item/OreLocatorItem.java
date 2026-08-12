@@ -20,6 +20,7 @@ import net.minecraft.world.InteractionResultHolder;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
@@ -72,6 +73,42 @@ public class OreLocatorItem extends Item {
         }
         return InteractionResultHolder.sidedSuccess(stack, level.isClientSide);
     }
+
+    @Override
+    public void appendHoverText(ItemStack stack, Level level, List<Component> tooltipComponents, TooltipFlag isAdvanced) {
+        if (isShiftDownSafe()) {
+            CompoundTag tag = stack.getOrCreateTag();
+            int customRadius = tag.getInt("CustomRadius");
+            int actualRadius = customRadius > 0 ? customRadius : radiusSupplier.get();
+
+            // Явно задаем белый цвет через сброс стилей, чтобы категории и редкости не перекрашивали текст
+            tooltipComponents.add(Component.translatable("tooltip.rudo-locator.radius", actualRadius)
+                    .setStyle(net.minecraft.network.chat.Style.EMPTY.withColor(net.minecraft.ChatFormatting.WHITE)));
+            tooltipComponents.add(Component.translatable("tooltip.rudo-locator.cooldown").withStyle(ChatFormatting.GRAY));
+        } else {
+            tooltipComponents.add(Component.translatable("tooltip.rudo-locator.shift_hint").withStyle(ChatFormatting.DARK_GRAY));
+        }
+
+        super.appendHoverText(stack, level, tooltipComponents, isAdvanced);
+    }
+
+    private static boolean isShiftDownSafe() {
+        try {
+            Class<?> screenClass;
+            try {
+                // Работает в IDE (dev-среде)
+                screenClass = Class.forName("net.minecraft.client.gui.screens.Screen");
+                return (Boolean) screenClass.getMethod("hasShiftDown").invoke(null);
+            } catch (ClassNotFoundException e) {
+                // Работает в готовом JAR-файле (Fabric Intermediary 1.20.1)
+                screenClass = Class.forName("net.minecraft.class_437");
+                return (Boolean) screenClass.getMethod("method_25442").invoke(null);
+            }
+        } catch (Throwable e) {
+            return false;
+        }
+    }
+
 
     // ==========================================
     // ПОЛОСКА ПЕРЕЗАРЯДКИ (РАБОТАЕТ БЕЗ ИМПОРТОВ)

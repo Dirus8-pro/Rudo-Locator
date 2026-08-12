@@ -24,7 +24,6 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class ClientModEvents {
 
-    // Храним позицию и игровой тик, когда блок был подсвечен
     private static final Map<BlockPos, Long> highlightedOres = new ConcurrentHashMap<>();
 
     public static void setHighlightedOres(List<BlockPos> positions) {
@@ -45,7 +44,6 @@ public class ClientModEvents {
 
             long currentTime = level.getGameTime();
 
-            // ТАЙМЕР: Удаляем блоки, если прошло > 600 тиков (30 сек) или если блок сломали (стал воздухом)
             highlightedOres.entrySet().removeIf(entry -> {
                 BlockPos pos = entry.getKey();
                 long spawnTime = entry.getValue();
@@ -73,10 +71,8 @@ public class ClientModEvents {
             Matrix4f matrix = poseStack.last().pose();
 
             for (BlockPos pos : highlightedOres.keySet()) {
-                // Определяем уникальный цвет для конкретной руды
                 float[] color = getOreColor(level, pos);
                 AABB box = new AABB(pos);
-
                 renderBox(bufferBuilder, matrix, box, color[0], color[1], color[2], color[3]);
             }
 
@@ -97,7 +93,6 @@ public class ClientModEvents {
         BlockState state = level.getBlockState(pos);
         Block block = state.getBlock();
 
-        // Проверяем персональный цвет из фильтра (если он задан)
         CompoundTag oreFilter = OreFilterHolder.getFilter();
         String filterKey = getOreTypeKeyForClient(state);
 
@@ -109,7 +104,6 @@ public class ClientModEvents {
             return new float[]{r, g, b, 0.9f};
         }
 
-        // Стандартные цвета ванильных руд
         if (block == Blocks.COAL_ORE || block == Blocks.DEEPSLATE_COAL_ORE) return new float[]{0.1f, 0.1f, 0.1f, 0.8f};
         if (block == Blocks.IRON_ORE || block == Blocks.DEEPSLATE_IRON_ORE) return new float[]{0.9f, 0.7f, 0.5f, 0.8f};
         if (block == Blocks.COPPER_ORE || block == Blocks.DEEPSLATE_COPPER_ORE) return new float[]{1.0f, 0.5f, 0.2f, 0.8f};
@@ -122,7 +116,6 @@ public class ClientModEvents {
         if (block == Blocks.NETHER_QUARTZ_ORE) return new float[]{0.9f, 0.9f, 0.9f, 0.8f};
         if (block == Blocks.NETHER_GOLD_ORE) return new float[]{1.0f, 0.8f, 0.0f, 0.8f};
 
-        // Модовые руды – ярко-розовый по умолчанию
         return new float[]{1.0f, 0.0f, 0.6f, 0.9f};
     }
 
@@ -137,6 +130,9 @@ public class ClientModEvents {
         if (block == Blocks.DIAMOND_ORE || block == Blocks.DEEPSLATE_DIAMOND_ORE) return "diamond";
         if (block == Blocks.EMERALD_ORE || block == Blocks.DEEPSLATE_EMERALD_ORE) return "emerald";
         if (block == Blocks.ANCIENT_DEBRIS) return "netherite";
+        if (block == Blocks.NETHER_QUARTZ_ORE) return "quartz";
+        if (block == Blocks.NETHER_GOLD_ORE) return "nether_gold";
+
         ResourceLocation id = BuiltInRegistries.BLOCK.getKey(block);
         return id != null ? id.toString() : null;
     }
