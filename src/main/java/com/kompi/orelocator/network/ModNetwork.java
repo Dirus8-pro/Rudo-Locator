@@ -1,30 +1,25 @@
 package com.kompi.orelocator.network;
 
-import com.kompi.orelocator.OreLocatorMod;
-import net.minecraft.resources.ResourceLocation;
-import net.minecraftforge.network.NetworkRegistry;
-import net.minecraftforge.network.simple.SimpleChannel;
+import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
+import com.kompi.orelocator.RudoLocator;
 
 public class ModNetwork {
-    private static final String PROTOCOL_VERSION = "1";
-    public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
-            new ResourceLocation(OreLocatorMod.MODID, "main"),
-            () -> PROTOCOL_VERSION,
-            PROTOCOL_VERSION::equals,
-            PROTOCOL_VERSION::equals
-    );
-
     public static void init() {
-        CHANNEL.messageBuilder(OreHighlightPacket.class, 0)
-                .encoder(OreHighlightPacket::encode)
-                .decoder(OreHighlightPacket::decode)
-                .consumerNetworkThread(OreHighlightPacket::handle)
-                .add();
+        // Регистрируем пакеты на серверной стороне
+        PayloadTypeRegistry.playS2C().register(OreHighlightPayload.TYPE, OreHighlightPayload.CODEC);
+        PayloadTypeRegistry.playS2C().register(SyncOreFilterPayload.TYPE, SyncOreFilterPayload.CODEC);
+        PayloadTypeRegistry.playC2S().register(SyncOreFilterPayload.TYPE, SyncOreFilterPayload.CODEC);
 
-        CHANNEL.messageBuilder(SyncOreFilterPacket.class, 1)
-                .encoder(SyncOreFilterPacket::encode)
-                .decoder(SyncOreFilterPacket::decode)
-                .consumerNetworkThread(SyncOreFilterPacket::handle)
-                .add();
+        // Принимаем SyncOreFilterPayload от клиента
+        ServerPlayNetworking.registerGlobalReceiver(SyncOreFilterPayload.TYPE, (payload, context) -> {
+            context.server().execute(() -> {
+                // Сохраняем фильтр в файл и рассылаем всем
+                com.kompi.orelocator.xray.OreFilterStorage.saveFilter(payload.filter());
+                for (var player : context.server().getPlayerList().getPlayers()) {
+                    ServerPlayNetworking.send(player, new SyncOreFilterPayload(payload.filter()));
+                }
+            });
+        });
     }
 }

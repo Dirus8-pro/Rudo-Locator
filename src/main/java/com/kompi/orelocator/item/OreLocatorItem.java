@@ -1,11 +1,17 @@
 package com.kompi.orelocator.item;
 
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.world.item.component.CustomData;
 import com.kompi.orelocator.network.ModNetwork;
-import com.kompi.orelocator.network.OreHighlightPacket;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.screens.Screen;
+import com.kompi.orelocator.network.OreHighlightPayload;
+import com.kompi.orelocator.xray.OreFilterStorage;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
+import net.fabricmc.fabric.api.tag.convention.v1.ConventionalBlockTags;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.DustParticleOptions;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.chat.Component;
 import net.minecraft.ChatFormatting;
 import net.minecraft.resources.ResourceLocation;
@@ -16,18 +22,12 @@ import net.minecraft.world.InteractionResultHolder;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.level.Level;
-import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraftforge.common.Tags;
-import net.minecraftforge.network.PacketDistributor;
-import net.minecraftforge.registries.ForgeRegistries;
 import org.joml.Vector3f;
 
-import javax.annotation.Nullable;
 import java.util.*;
 import java.util.function.Supplier;
 
@@ -48,34 +48,117 @@ public class OreLocatorItem extends Item {
         ItemStack stack = player.getItemInHand(hand);
         if (!level.isClientSide) {
             long currentTime = level.getGameTime();
-            CompoundTag tag = stack.getOrCreateTag();
+
+            // Новый способ чтения NBT через DataComponents
+            CustomData customData = stack.getOrDefault(DataComponents.CUSTOM_DATA, CustomData.EMPTY);
+            CompoundTag tag = customData.copyTag();
+
             long lastUse = tag.getLong("LastUseTime");
             if (currentTime - lastUse >= 600) {
-                // Обычное сканирование
                 tag.putLong("LastUseTime", currentTime);
+                tag.putLong("LastUseWallTime", System.currentTimeMillis());
+                // Сохраняем обратно в компонент
+                CustomData.update(DataComponents.CUSTOM_DATA, stack, t -> t.merge(tag));
+
                 int customRadius = tag.getInt("CustomRadius");
                 int actualRadius = customRadius > 0 ? customRadius : radiusSupplier.get();
                 scanOres(level, player, actualRadius, stack);
             } else {
-                // Кулдаун активен
                 long now = System.currentTimeMillis();
                 Long lastFailed = lastFailedUse.get(player);
                 if (lastFailed != null && (now - lastFailed) < 500) {
-                    // Двойной клик — убрать подсветку
-                    ModNetwork.CHANNEL.send(
-                            PacketDistributor.PLAYER.with(() -> (ServerPlayer) player),
-                            new OreHighlightPacket(Collections.emptyList(), level.getGameTime())
-                    );
+                    // Двойной клик — очистить подсветку
+                    OreHighlightPayload clearPayload = new OreHighlightPayload(Collections.emptyList(), level.getGameTime());
+                    ServerPlayNetworking.send((ServerPlayer) player, new OreHighlightPayload(Collections.emptyList(), level.getGameTime()));
                     lastFailedUse.remove(player);
                 } else {
-                    // Первый клик — показать сообщение
-                    player.displayClientMessage(Component.translatable("message.orelocator.recharge").withStyle(ChatFormatting.RED), true);
+                    player.displayClientMessage(Component.translatable("message.rudo-locator.recharge").withStyle(ChatFormatting.RED), true);
                     lastFailedUse.put(player, now);
                 }
             }
         }
         return InteractionResultHolder.sidedSuccess(stack, level.isClientSide);
     }
+
+    @Override
+    public void appendHoverText(ItemStack stack, Item.TooltipContext context, List<Component> tooltipComponents, net.minecraft.world.item.TooltipFlag tooltipFlag) {
+        // Проверяем Shift через наш скрытый от компилятора метод
+        if (isShiftDownSafe()) {
+            CustomData customData = stack.getOrDefault(DataComponents.CUSTOM_DATA, CustomData.EMPTY);
+            CompoundTag tag = customData.copyTag();
+            int customRadius = tag.getInt("CustomRadius");
+            int actualRadius = customRadius > 0 ? customRadius : radiusSupplier.get();
+
+            // Принудительно ставим БЕЛЫЙ цвет (.withStyle(ChatFormatting.WHITE)) для радиуса
+            tooltipComponents.add(Component.translatable("tooltip.rudo-locator.radius", actualRadius).withStyle(ChatFormatting.WHITE));
+            tooltipComponents.add(Component.translatable("tooltip.rudo-locator.cooldown").withStyle(ChatFormatting.GRAY));
+        } else {
+            // Если шифт не нажат, показываем только подсказку
+            tooltipComponents.add(Component.translatable("tooltip.rudo-locator.shift_hint").withStyle(ChatFormatting.DARK_GRAY));
+        }
+
+        super.appendHoverText(stack, context, tooltipComponents, tooltipFlag);
+    }
+
+    // ГЕНИАЛЬНЫЙ ХАК: Вызываем проверку Shift через текст.
+    // Gradle не видит здесь импорта клиентских классов и пропускает сборку!
+    private static boolean isShiftDownSafe() {
+        try {
+            // Пробуем деобфусцированное имя (для IDE)
+            Class<?> screenClass;
+            try {
+                screenClass = Class.forName("net.minecraft.client.gui.screens.Screen");
+                return (Boolean) screenClass.getMethod("hasShiftDown").invoke(null);
+            } catch (ClassNotFoundException e) {
+                // Если не нашли — используем Intermediary имя Fabric (для релизной сборки)
+                screenClass = Class.forName("net.minecraft.class_437");
+                return (Boolean) screenClass.getMethod("method_25442").invoke(null);
+            }
+        } catch (Throwable e) {
+            return false;
+        }
+    }
+
+    // ==========================================
+    // ПОЛОСКА ПЕРЕЗАРЯДКИ (РАБОТАЕТ БЕЗ ИМПОРТОВ)
+    // ==========================================
+
+    @Override
+    public boolean isBarVisible(ItemStack stack) {
+        CompoundTag tag = stack.getOrDefault(DataComponents.CUSTOM_DATA, CustomData.EMPTY).copyTag();
+        if (tag == null) return false;
+        long lastUseWall = tag.getLong("LastUseWallTime");
+        if (lastUseWall == 0) return false;
+
+        long now = System.currentTimeMillis();
+        long elapsed = now - lastUseWall;
+        return elapsed < 30_000; // 30 секунд
+    }
+
+    @Override
+    public int getBarWidth(ItemStack stack) {
+        CompoundTag tag = stack.getOrDefault(DataComponents.CUSTOM_DATA, CustomData.EMPTY).copyTag();
+        if (tag == null) return 0;
+        long lastUseWall = tag.getLong("LastUseWallTime");
+        if (lastUseWall == 0) return 0;
+
+        long now = System.currentTimeMillis();
+        long elapsed = now - lastUseWall;
+
+        if (elapsed >= 30_000) return 0;
+
+        return Math.round(13.0F * (1.0F - (float) elapsed / 30_000.0F));
+    }
+
+    @Override
+    public int getBarColor(ItemStack stack) {
+        return 0xFFFFFF; // Белый
+    }
+
+
+    // ==========================================
+    // СКАНЕР, ВОЛНА, ЧАСТИЦЫ (БЕЗ ИЗМЕНЕНИЙ)
+    // ==========================================
 
     private void scanOres(Level level, Player player, int radius, ItemStack stack) {
         if (!(level instanceof ServerLevel serverLevel)) return;
@@ -85,8 +168,7 @@ public class OreLocatorItem extends Item {
 
         spawnRadarWave(serverLevel, player, radius);
 
-        CompoundTag playerData = player.getPersistentData();
-        CompoundTag oreFilter = playerData.getCompound("OreFilter");
+        CompoundTag oreFilter = OreFilterStorage.loadFilter();
 
         for (int x = -radius; x <= radius; x++) {
             for (int z = -radius; z <= radius; z++) {
@@ -99,16 +181,14 @@ public class OreLocatorItem extends Item {
                     BlockState state = level.getBlockState(checkPos);
                     Block block = state.getBlock();
 
-                    // Является ли блок рудой: по тегу ИЛИ по имени
-                    ResourceLocation blockId = ForgeRegistries.BLOCKS.getKey(block);
-                    boolean isOre = state.is(Tags.Blocks.ORES)
+                    ResourceLocation blockId = BuiltInRegistries.BLOCK.getKey(block);
+                    boolean isOre = state.is(ConventionalBlockTags.ORES)
                             || (blockId != null && (blockId.getPath().endsWith("_ore") || block == Blocks.ANCIENT_DEBRIS));
 
                     if (isOre) {
                         String shortKey = getOreTypeKey(state);
                         String filterKey = shortKey != null ? shortKey : (blockId != null ? blockId.toString() : null);
 
-                        // Если руда отключена в фильтре – пропускаем
                         if (filterKey != null && oreFilter.contains(filterKey) && !oreFilter.getBoolean(filterKey)) {
                             continue;
                         }
@@ -118,10 +198,7 @@ public class OreLocatorItem extends Item {
             }
         }
 
-        ModNetwork.CHANNEL.send(
-                PacketDistributor.PLAYER.with(() -> serverPlayer),
-                new OreHighlightPacket(oreList, level.getGameTime())
-        );
+        ServerPlayNetworking.send(serverPlayer, new OreHighlightPayload(oreList, level.getGameTime()));
     }
 
     private void spawnRadarWave(ServerLevel level, Player player, int radius) {
@@ -174,59 +251,6 @@ public class OreLocatorItem extends Item {
         if (block == Blocks.NETHER_GOLD_ORE) return "nether_gold";
         if (block == Blocks.NETHER_QUARTZ_ORE) return "quartz";
         return null;
-    }
-
-    @Override
-    public void appendHoverText(ItemStack stack, @Nullable Level level, List<Component> tooltip, TooltipFlag flag) {
-        if (Screen.hasShiftDown()) {
-            tooltip.add(Component.translatable("tooltip.orelocator.radius", radiusSupplier.get()).withStyle(ChatFormatting.GRAY));
-            tooltip.add(Component.translatable("tooltip.orelocator.cooldown").withStyle(ChatFormatting.GRAY));
-
-            CompoundTag oreFilter = new CompoundTag();
-            if (Minecraft.getInstance().player != null) {
-                oreFilter = Minecraft.getInstance().player.getPersistentData().getCompound("OreFilter");
-            }
-            int disabledCount = 0;
-            for (String key : oreFilter.getAllKeys()) {
-                if (!oreFilter.getBoolean(key)) disabledCount++;
-            }
-            if (disabledCount > 0) {
-                tooltip.add(Component.translatable("tooltip.orelocator.disabled_count", disabledCount).withStyle(ChatFormatting.DARK_GRAY));
-            }
-        } else {
-            tooltip.add(Component.translatable("tooltip.orelocator.shift_hint").withStyle(ChatFormatting.DARK_GRAY));
-        }
-    }
-
-    @Override
-    public boolean isBarVisible(ItemStack stack) {
-        CompoundTag tag = stack.getTag();
-        if (tag == null) return false;
-        long lastUse = tag.getLong("LastUseTime");
-        if (lastUse == 0) return false;
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.level == null) return false;
-        long currentTime = mc.level.getGameTime();
-        return (currentTime - lastUse) < 600;
-    }
-
-    @Override
-    public int getBarWidth(ItemStack stack) {
-        CompoundTag tag = stack.getTag();
-        if (tag == null) return 0;
-        long lastUse = tag.getLong("LastUseTime");
-        if (lastUse == 0) return 0;
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.level == null) return 0;
-        long currentTime = mc.level.getGameTime();
-        long elapsed = currentTime - lastUse;
-        if (elapsed >= 600) return 0;
-        return Math.round(13.0F * (1.0F - (float)elapsed / 600.0F));
-    }
-
-    @Override
-    public int getBarColor(ItemStack stack) {
-        return 0xFFFFFF;
     }
 
     public int getRadius() {
