@@ -1,23 +1,24 @@
 package com.kompi.orelocator.client;
 
+import net.minecraft.world.level.block.Block;
+import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.vertex.PoseStack;
 import com.kompi.orelocator.Config;
 import com.kompi.orelocator.init.ModItems;
 import com.kompi.orelocator.network.ModNetwork;
 import com.kompi.orelocator.network.SyncOreFilterPacket;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.block.Block;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.state.BlockState;
-import net.minecraftforge.common.Tags;
 import net.minecraftforge.registries.ForgeRegistries;
 
 import java.util.*;
@@ -38,6 +39,7 @@ public class OreFilterScreen extends Screen {
     private int selectedIndex = 0;
     private int scrollOffset = 0;
     private static final int VISIBLE_ICONS = 9;
+    // растояние межд верхними блоками их срабатывания
     private static final int ICON_SIZE = 20;
     private static final int ICON_SPACING = 3;
 
@@ -52,7 +54,6 @@ public class OreFilterScreen extends Screen {
 
     private final int sliderWidth = 105;
 
-    // Поле радиуса
     private int currentRadius;
     private int maxRadius;
     private EditBox radiusEdit;
@@ -102,13 +103,31 @@ public class OreFilterScreen extends Screen {
             "iron", "copper", "gold", "coal", "redstone", "lapis", "diamond", "emerald", "netherite", "quartz", "nether_gold"
     };
 
+    // Безопасное получение иконок блоков руд напрямую из Реестра Forge
+    private static Item getOreBlockItem(String key) {
+        ResourceLocation rl = switch (key) {
+            case "iron" -> new ResourceLocation("minecraft", "iron_ore");
+            case "copper" -> new ResourceLocation("minecraft", "copper_ore");
+            case "gold" -> new ResourceLocation("minecraft", "gold_ore");
+            case "coal" -> new ResourceLocation("minecraft", "coal_ore");
+            case "redstone" -> new ResourceLocation("minecraft", "redstone_ore");
+            case "lapis" -> new ResourceLocation("minecraft", "lapis_ore");
+            case "diamond" -> new ResourceLocation("minecraft", "diamond_ore");
+            case "emerald" -> new ResourceLocation("minecraft", "emerald_ore");
+            case "netherite" -> new ResourceLocation("minecraft", "ancient_debris");
+            case "quartz" -> new ResourceLocation("minecraft", "nether_quartz_ore");
+            case "nether_gold" -> new ResourceLocation("minecraft", "nether_gold_ore");
+            default -> new ResourceLocation("minecraft", "stone");
+        };
+        Item found = ForgeRegistries.ITEMS.getValue(rl);
+        return (found != null && found != Items.AIR) ? found : Blocks.STONE.asItem();
+    }
+
     public OreFilterScreen(ItemStack stack, CompoundTag currentFilter) {
         super(Component.translatable("screen.orelocator.ore_filter"));
         this.locatorStack = stack;
 
-        // Определяем радиус из конфига по типу предмета
         Item item = stack.getItem();
-        // Определяем радиусы
         if (item == ModItems.COPPER_ORE_LOCATOR.get()) {
             currentRadius = Config.COPPER_CURRENT_RADIUS.get();
             maxRadius = Config.COPPER_MAX_RADIUS.get();
@@ -129,45 +148,37 @@ public class OreFilterScreen extends Screen {
             maxRadius = 64;
         }
 
-        Map<String, String> groupToId = new LinkedHashMap<>();
-        for (String g : VANILLA_ORDER) groupToId.put(g, null);
-
-        for (Block block : ForgeRegistries.BLOCKS.getValues()) {
-            ResourceLocation id = ForgeRegistries.BLOCKS.getKey(block);
-            if (id != null) {
-                boolean isOre = block.defaultBlockState().is(Tags.Blocks.ORES)
-                        || id.getPath().endsWith("_ore")
-                        || block == Blocks.ANCIENT_DEBRIS;
-                if (isOre) {
-                    String group = getOreGroup(block.defaultBlockState());
-                    if (group != null) {
-                        if (groupToId.containsKey(group)) {
-                            if (groupToId.get(group) == null) {
-                                groupToId.put(group, id.toString());
-                            }
-                        } else {
-                            groupToId.put(group, id.toString());
-                        }
-                    }
-                }
-            }
-        }
-
-        for (String key : groupToId.keySet()) {
+        for (String key : VANILLA_ORDER) {
             filterState.put(key, !currentFilter.contains(key) || currentFilter.getBoolean(key));
             int defaultColor = currentFilter.contains(key + "_rgb_color") ? currentFilter.getInt(key + "_rgb_color") : DEFAULT_ORE_COLORS.getOrDefault(key, 0xFFFF0080);
             oreColors.put(key, defaultColor);
+
+            Component displayName = ORE_NAMES.getOrDefault(key, Component.literal(key));
+            oreEntries.add(new OreEntry(key, displayName, new ItemStack(getOreBlockItem(key))));
         }
 
-        for (String key : groupToId.keySet()) {
-            String iconId = groupToId.get(key);
-            if (iconId != null) {
-                Component displayName = ORE_NAMES.getOrDefault(key, null);
-                if (displayName == null) {
-                    Block iconBlock = ForgeRegistries.BLOCKS.getValue(new ResourceLocation(iconId));
-                    displayName = iconBlock != null ? iconBlock.getName() : Component.literal(key);
+        // --- НОВЫЙ КОД: Динамический поиск модовых руд в реестре ---
+        for (Block block : ForgeRegistries.BLOCKS) {
+            ResourceLocation id = ForgeRegistries.BLOCKS.getKey(block);
+            if (id != null && !id.getNamespace().equals("minecraft")) {
+                String path = id.getPath().toLowerCase();
+                String desc = block.getDescriptionId().toLowerCase();
+
+                if (path.contains("ore") || path.contains("debris") || desc.contains("ore")) {
+                    String key = id.toString();
+
+                    if (!filterState.containsKey(key)) {
+                        filterState.put(key, !currentFilter.contains(key) || currentFilter.getBoolean(key));
+
+                        // Все модовые руды получают одинаковый розовый цвет по умолчанию
+                        int defaultColor = currentFilter.contains(key + "_rgb_color") ?
+                                currentFilter.getInt(key + "_rgb_color") : 0xFFFF0080;
+                        oreColors.put(key, defaultColor);
+
+                        Component displayName = Component.translatable(block.getDescriptionId());
+                        oreEntries.add(new OreEntry(key, displayName, new ItemStack(block.asItem())));
+                    }
                 }
-                oreEntries.add(new OreEntry(key, iconId, displayName));
             }
         }
 
@@ -184,23 +195,6 @@ public class OreFilterScreen extends Screen {
         this.bVal = color & 0xFF;
     }
 
-    private String getOreGroup(BlockState state) {
-        Block block = state.getBlock();
-        if (block == Blocks.IRON_ORE || block == Blocks.DEEPSLATE_IRON_ORE) return "iron";
-        if (block == Blocks.COPPER_ORE || block == Blocks.DEEPSLATE_COPPER_ORE) return "copper";
-        if (block == Blocks.GOLD_ORE || block == Blocks.DEEPSLATE_GOLD_ORE) return "gold";
-        if (block == Blocks.COAL_ORE || block == Blocks.DEEPSLATE_COAL_ORE) return "coal";
-        if (block == Blocks.REDSTONE_ORE || block == Blocks.DEEPSLATE_REDSTONE_ORE) return "redstone";
-        if (block == Blocks.LAPIS_ORE || block == Blocks.DEEPSLATE_LAPIS_ORE) return "lapis";
-        if (block == Blocks.DIAMOND_ORE || block == Blocks.DEEPSLATE_DIAMOND_ORE) return "diamond";
-        if (block == Blocks.EMERALD_ORE || block == Blocks.DEEPSLATE_EMERALD_ORE) return "emerald";
-        if (block == Blocks.ANCIENT_DEBRIS) return "netherite";
-        if (block == Blocks.NETHER_QUARTZ_ORE) return "quartz";
-        if (block == Blocks.NETHER_GOLD_ORE) return "nether_gold";
-        ResourceLocation id = ForgeRegistries.BLOCKS.getKey(block);
-        return id != null ? id.toString() : null;
-    }
-
     @Override
     protected void init() {
         super.init();
@@ -208,36 +202,29 @@ public class OreFilterScreen extends Screen {
         this.topPos = (this.height - this.guiHeight) / 2;
         this.clearWidgets();
 
-        int fieldWidth = 40;
+        int fieldWidth = 35;
         int fieldHeight = 12;
-        int fieldX = leftPos + 125;
-        int fieldY = topPos + guiHeight - 65;
+        int fieldX = leftPos + 126;
+        int fieldY = topPos + 132;
 
         this.radiusEdit = new EditBox(this.font, fieldX, fieldY, fieldWidth, fieldHeight, Component.literal("")) {
             @Override
-            public void renderWidget(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-                if (!this.isVisible()) return;
+            public void renderButton(PoseStack poseStack, int mouseX, int mouseY, float partialTick) {
+                if (!this.visible) return;
 
                 Font font = Minecraft.getInstance().font;
-                // Включаем обрезку по размеру поля
-                graphics.enableScissor(this.getX(), this.getY(), this.getX() + this.width, this.getY() + this.height);
+                font.draw(poseStack, this.getValue(), this.x, this.y, 0xFFFFFF);
 
-                // Текст
-                graphics.drawString(font, this.getValue(), this.getX() + 4, this.getY() + (this.height - 8) / 2, 0xFFFFFF, false);
-
-                // Курсор
                 if (this.isFocused()) {
                     int cursorPos = this.getCursorPosition();
                     String text = this.getValue();
-                    int cursorX = this.getX() + 4 + font.width(text.substring(0, cursorPos));
-                    graphics.fill(cursorX, this.getY() + (this.height - 8) / 2 - 1, cursorX + 1, this.getY() + (this.height + 8) / 2, 0xFFCCCCCC);
+                    int cursorX = this.x + font.width(text.substring(0, cursorPos));
+                    fill(poseStack, cursorX, this.y - 1, cursorX + 1, this.y + 9, 0xFFCCCCCC);
                 }
-
-                // Выключаем обрезку
-                graphics.disableScissor();
             }
         };
 
+        this.radiusEdit.setBordered(false);
         this.radiusEdit.setValue(String.valueOf(currentRadius));
         this.radiusEdit.setFilter(s -> s.matches("\\d{0,3}"));
         this.radiusEdit.setResponder(text -> {
@@ -323,17 +310,18 @@ public class OreFilterScreen extends Screen {
                     return true;
                 }
 
+
                 int totalBottomWidth = 90 + 6 + 10 + 8 + 45;
                 int bottomStartX = leftPos + (guiWidth - totalBottomWidth) / 2;
 
-                if (mouseX >= bottomStartX && mouseX <= bottomStartX + 90 && mouseY >= topPos + 150 && mouseY <= topPos + 161) {
+                if (mouseX >= bottomStartX && mouseX <= bottomStartX + 90 && mouseY >= topPos + 150 && mouseY <= topPos + 160) {
                     this.colorPanelOpen = !this.colorPanelOpen;
                     if (colorPanelOpen) updateSlidersFromCurrentOre();
                     playClickSound();
                     return true;
                 }
 
-                if (mouseX >= bottomStartX + 90 + 6 + 10 + 8 && mouseX <= bottomStartX + 90 + 6 + 10 + 8 + 45 && mouseY >= topPos + 150 && mouseY <= topPos + 161) {
+                if (mouseX >= bottomStartX + 90 + 6 + 10 + 8 && mouseX <= bottomStartX + 90 + 6 + 10 + 8 + 45 && mouseY >= topPos + 150 && mouseY <= topPos + 160) {
                     oreColors.put(current.key, DEFAULT_ORE_COLORS.getOrDefault(current.key, 0xFFFF0080));
                     updateSlidersFromCurrentOre();
                     playClickSound();
@@ -368,8 +356,10 @@ public class OreFilterScreen extends Screen {
     }
 
     private void playClickSound() {
-        this.minecraft.getSoundManager().play(net.minecraft.client.resources.sounds.SimpleSoundInstance.forUI(
-                net.minecraft.sounds.SoundEvents.UI_BUTTON_CLICK, 1.0F));
+        if (this.minecraft != null && this.minecraft.getSoundManager() != null) {
+            this.minecraft.getSoundManager().play(net.minecraft.client.resources.sounds.SimpleSoundInstance.forUI(
+                    net.minecraft.sounds.SoundEvents.UI_BUTTON_CLICK, 1.0F));
+        }
     }
 
     @Override
@@ -412,36 +402,54 @@ public class OreFilterScreen extends Screen {
     }
 
     @Override
-    public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        this.renderBackground(graphics);
+    public void render(PoseStack poseStack, int mouseX, int mouseY, float partialTick) {
+        this.renderBackground(poseStack);
 
+        RenderSystem.setShader(GameRenderer::getPositionTexShader);
+        RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
         ResourceLocation currentTexture = colorPanelOpen ? GUI_TEXTURE_RGB : GUI_TEXTURE;
-        graphics.blit(currentTexture, leftPos, topPos, 0, 0, 256, guiHeight, 256, 256);
+        RenderSystem.setShaderTexture(0, currentTexture);
+        this.blit(poseStack, leftPos, topPos, 0, 0, 256, guiHeight);
 
         int startX = leftPos + (guiWidth - (VISIBLE_ICONS * (ICON_SIZE + ICON_SPACING) - ICON_SPACING)) / 2;
         int startY = topPos + 12;
 
+        // Отрисовка верхнего ряда иконок
         for (int i = 0; i < VISIBLE_ICONS; i++) {
             int entryIndex = scrollOffset + i;
             if (entryIndex >= oreEntries.size()) break;
 
             OreEntry entry = oreEntries.get(entryIndex);
-            int iconX = startX + i * (ICON_SIZE + ICON_SPACING) + 1;
+            int iconX = startX + i * (ICON_SIZE + ICON_SPACING);
 
+            // ВАЖНО: Возвращаем нашу текстуру GUI, так как renderGuiItem сбил её на атлас блоков
+            RenderSystem.setShaderTexture(0, currentTexture);
+
+            // Рисуем бирюзовую рамку выделения (координаты 0, 220)
             if (entryIndex == selectedIndex) {
-                graphics.blit(currentTexture, iconX - 2, startY - 2, 0, 220, 22, 22, 256, 256);
+                this.blit(poseStack, iconX - 1, startY - 2, 0, 220, 22, 22);
             }
 
-            graphics.pose().pushPose();
-            graphics.pose().translate(iconX + 2.3, startY + 2, 0);
-            graphics.pose().scale(0.85F, 0.85F, 1.0F);
-            graphics.renderItem(entry.getIconStack(), 0, 0);
-            graphics.pose().popPose();
+            // Уменьшаем иконку до 14x14 и центрируем в слоте 20x20
+            PoseStack ps = RenderSystem.getModelViewStack();
+            ps.pushPose();
+            ps.translate(iconX + 2 + 1, startY + 2, 0); // +1 для центрирования
+            ps.scale(0.880F, 0.880F, 1.0F);                // 14/16 = 0.875
+            this.itemRenderer.renderGuiItem(entry.getIconStack(), 0, 0);
+            ps.popPose();
+            RenderSystem.applyModelViewMatrix();
 
+            // Если руда выключена - рисуем поверх красную рамку отключения
             if (!filterState.getOrDefault(entry.key, true)) {
-                graphics.blit(GUI_TEXTURE, iconX, startY, 24, 220, 20, 20, 256, 256);
+                // Снова возвращаем текстуру GUI
+                RenderSystem.setShaderTexture(0, GUI_TEXTURE);
+                this.blit(poseStack, iconX + 1, startY, 24, 220, 20, 20);
+                RenderSystem.setShaderTexture(0, currentTexture);
             }
         }
+
+// Восстанавливаем текстуру GUI для рендера остальной части окна
+        RenderSystem.setShaderTexture(0, currentTexture);
 
         int oreScrollX = leftPos + 26;
         int oreScrollY = topPos + 36;
@@ -450,20 +458,33 @@ public class OreFilterScreen extends Screen {
         if (maxScrollable > 0) {
             thumbXOffset = (scrollOffset * (scrollBarWidth - scrollThumbWidth)) / maxScrollable;
         }
-        graphics.fill(oreScrollX + thumbXOffset, oreScrollY,
+        fill(poseStack, oreScrollX + thumbXOffset, oreScrollY,
                 oreScrollX + thumbXOffset + scrollThumbWidth, oreScrollY + 4, 0xFF8B8B8B);
 
         if (!oreEntries.isEmpty()) {
             OreEntry current = oreEntries.get(selectedIndex);
 
-            graphics.pose().pushPose();
-            graphics.pose().translate(leftPos + 18, topPos + 51, 0);
-            graphics.pose().scale(3.3F, 3.3F, 1.0F);
-            graphics.renderItem(current.getIconStack(), 0, 0);
-            graphics.pose().popPose();
+            // Правильный рендер крупной иконки руды без улетания в левый верхний угол экрана
+            PoseStack modelViewStack = RenderSystem.getModelViewStack();
+            modelViewStack.pushPose();
+
+            // Сдвигаем глобальную матрицу в нужное место (внутрь рамки интерфейса)
+            modelViewStack.translate(leftPos + 26, topPos + 54, 0);
+            modelViewStack.scale(3.5F, 3.5F, 1.0F); // Увеличиваем в 2.3 раза
+
+            // Применяем изменения матрицы к RenderSystem перед рендером предмета
+            RenderSystem.applyModelViewMatrix();
+
+            // Теперь рендерим предмет в координатах 0, 0 (он отрендерится там, куда мы сдвинули матрицу)
+            this.itemRenderer.renderGuiItem(current.getIconStack(), -3, -1);
+
+            // Обязательно возвращаем матрицу в исходное состояние, чтобы не сломать остальной интерфейс
+            modelViewStack.popPose();
+            RenderSystem.applyModelViewMatrix();
 
             int textX = leftPos + 85;
-            graphics.drawString(this.font, current.displayName, textX, topPos + 56, 0xFFFFFF, false);
+            this.font.draw(poseStack, current.displayName, textX, topPos + 56, 0xFFFFFF);
+
 
             boolean isEnabled = filterState.getOrDefault(current.key, true);
 
@@ -472,36 +493,36 @@ public class OreFilterScreen extends Screen {
                         ? Component.translatable("orelocator.status.active")
                         : Component.translatable("orelocator.status.inactive");
                 int statusColor = isEnabled ? 0xFF00FF00 : 0xFFFF0000;
-                graphics.drawString(this.font, statusText, textX, topPos + 66, statusColor, false);
+                this.font.draw(poseStack, statusText, textX, topPos + 66, statusColor);
 
-                graphics.pose().pushPose();
-                graphics.pose().translate(textX, topPos + 78, 0);
-                graphics.pose().scale(0.85F, 0.85F, 1.0F);
+                poseStack.pushPose();
+                poseStack.translate(textX, topPos + 78, 0);
+                poseStack.scale(0.85F, 0.85F, 1.0F);
                 List<Component> infoLines = ORE_INFO.getOrDefault(current.key,
                         Collections.singletonList(Component.translatable("orelocator.info.unknown")));
                 for (int i = 0; i < infoLines.size(); i++) {
-                    graphics.drawString(this.font, infoLines.get(i), 0, i * 10, 0x999999, false);
+                    this.font.draw(poseStack, infoLines.get(i), 0, i * 10, 0x999999);
                 }
-                graphics.pose().popPose();
+                poseStack.popPose();
 
                 Component toggleText = isEnabled
                         ? Component.translatable("orelocator.button.toggle_off")
                         : Component.translatable("orelocator.button.toggle_on");
                 int toggleColor = isEnabled ? 0xFFFF5555 : 0xFF55FF55;
-                graphics.drawString(this.font, toggleText, textX - 65, topPos + 115, toggleColor, false);
+                this.font.draw(poseStack, toggleText, textX - 65, topPos + 115, toggleColor);
 
                 boolean anyDisabled = filterState.values().stream().anyMatch(val -> !val);
                 Component toggleAllText = anyDisabled
                         ? Component.translatable("orelocator.button.toggle_all_on")
                         : Component.translatable("orelocator.button.toggle_all_off");
-                graphics.drawString(this.font, toggleAllText, textX + 100, topPos + 115, 0xFFFFFF, false);
+                this.font.draw(poseStack, toggleAllText, textX + 100, topPos + 115, 0xFFFFFF);
 
             } else {
                 int sliderStartX = textX + 16;
                 Component applyText = Component.translatable("orelocator.button.apply");
                 int applyWidth = this.font.width(applyText);
                 int applyX = sliderStartX + (sliderWidth / 2) - (applyWidth / 2);
-                graphics.drawString(this.font, applyText, applyX - 38, topPos + 116, 0xFF55FF55, false);
+                this.font.draw(poseStack, applyText, applyX - 38, topPos + 115, 0xFF55FF55);
 
                 int[] sliderVals = {rVal, gVal, bVal};
                 int[] sliderColors = {0xFFFF0000, 0xFF00FF00, 0xFF0000FF};
@@ -513,12 +534,12 @@ public class OreFilterScreen extends Screen {
 
                 for (int i = 0; i < 3; i++) {
                     int sY = topPos + 70 + (i * 12);
-                    graphics.drawString(this.font, sliderLabels[i], textX, sY, sliderColors[i], false);
-                    graphics.fill(sliderStartX, sY + 4, sliderStartX + sliderWidth, sY + 5, 0xFF3F3F3F);
+                    this.font.draw(poseStack, sliderLabels[i], textX, sY, sliderColors[i]);
+                    fill(poseStack, sliderStartX, sY + 4, sliderStartX + sliderWidth, sY + 5, 0xFF3F3F3F);
                     int handleX = sliderStartX + (sliderVals[i] * sliderWidth) / 255;
-                    graphics.fill(handleX - 1, sY + 1, handleX + 2, sY + 8, sliderColors[i]);
-                    graphics.drawString(this.font, String.valueOf(sliderVals[i]),
-                            sliderStartX + sliderWidth + 12, sY, 0xFFFFFF, false);
+                    fill(poseStack, handleX - 1, sY + 1, handleX + 2, sY + 8, sliderColors[i]);
+                    this.font.draw(poseStack, String.valueOf(sliderVals[i]),
+                            sliderStartX + sliderWidth + 12, sY, 0xFFFFFF);
                 }
             }
 
@@ -527,25 +548,24 @@ public class OreFilterScreen extends Screen {
             int bottomY = topPos + 150;
 
             int colorLinkColor = colorPanelOpen ? 0xFFFFAA00 : 0xFF55FFFF;
-            graphics.drawString(this.font, Component.translatable("orelocator.button.change_color"),
-                    bottomStartX, bottomY, colorLinkColor, false);
+            this.font.draw(poseStack, Component.translatable("orelocator.button.change_color"),
+                    bottomStartX, bottomY, colorLinkColor);
 
             int savedColor = oreColors.getOrDefault(current.key, 0x00FF00);
             int currentCombinedColor = (255 << 24) | (colorPanelOpen ? ((rVal << 16) | (gVal << 8) | bVal) : savedColor);
             int squareX = bottomStartX + 90 + 6;
-            graphics.fill(squareX, bottomY - 1, squareX + 10, bottomY + 9, currentCombinedColor);
+            fill(poseStack, squareX, bottomY - 1, squareX + 10, bottomY + 9, currentCombinedColor);
 
             int resetX = squareX + 10 + 8;
-            graphics.drawString(this.font, Component.translatable("orelocator.button.reset"),
-                    resetX, bottomY, 0xAAAAAA, false);
+            this.font.draw(poseStack, Component.translatable("orelocator.button.reset"),
+                    resetX, bottomY, 0xAAAAAA);
         }
 
-        // Отрисовка редактора радиуса
-        graphics.drawString(this.font, Component.translatable("orelocator.gui.radius"),
-                leftPos + 85, topPos + guiHeight - 63, 0xFFFFFF, false);
-        radiusEdit.render(graphics, mouseX, mouseY, partialTick);
+        this.font.draw(poseStack, Component.translatable("orelocator.gui.radius"),
+                leftPos + 85, topPos + 132, 0xFFFFFF);
+        radiusEdit.render(poseStack, mouseX, mouseY, partialTick);
 
-        super.render(graphics, mouseX, mouseY, partialTick);
+        super.render(poseStack, mouseX, mouseY, partialTick);
     }
 
     @Override
@@ -560,7 +580,6 @@ public class OreFilterScreen extends Screen {
         for (String key : oreColors.keySet()) {
             oreFilter.putInt(key + "_rgb_color", oreColors.get(key));
         }
-        // Сохраняем локально и отправляем на сервер
         OreFilterHolder.setFilter(oreFilter);
         ModNetwork.CHANNEL.sendToServer(new SyncOreFilterPacket(oreFilter));
         super.onClose();
@@ -568,22 +587,17 @@ public class OreFilterScreen extends Screen {
 
     private static class OreEntry {
         final String key;
-        final String iconBlockId;
         final Component displayName;
-        private ItemStack cachedStack = null;
+        final ItemStack iconStack;
 
-        OreEntry(String key, String iconBlockId, Component displayName) {
+        OreEntry(String key, Component displayName, ItemStack iconStack) {
             this.key = key;
-            this.iconBlockId = iconBlockId;
             this.displayName = displayName;
+            this.iconStack = iconStack;
         }
 
         ItemStack getIconStack() {
-            if (cachedStack == null) {
-                Block block = ForgeRegistries.BLOCKS.getValue(new ResourceLocation(iconBlockId));
-                cachedStack = (block != null) ? new ItemStack(block.asItem()) : new ItemStack(Blocks.STONE);
-            }
-            return cachedStack;
+            return iconStack;
         }
     }
 }

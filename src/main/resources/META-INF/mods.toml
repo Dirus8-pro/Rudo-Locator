@@ -1,6 +1,7 @@
 modLoader="javafml"
-loaderVersion="[47,)"
+loaderVersion="[43,)"
 license="All rights reserved"
+Mixins = ["orelocator.mixins.json"]
 
 [[mods]]
 modId="orelocator"
@@ -25,13 +26,13 @@ credits="Thanks to Gemini and DeepSeek for help with design and coding"
 [[dependencies.orelocator]]
 modId="forge"
 mandatory=true
-versionRange="[47,)"
+versionRange="[43,)"
 ordering="NONE"
 side="BOTH"
 
 [[dependencies.orelocator]]
 modId="minecraft"
 mandatory=true
-versionRange="[1.20.1,1.21)"
+versionRange="[1.19.2,1.20)"
 ordering="NONE"
 side="BOTH"

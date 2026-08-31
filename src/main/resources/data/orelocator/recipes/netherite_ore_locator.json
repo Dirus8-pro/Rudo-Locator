@@ -1,15 +1,12 @@
 {
-  "type": "minecraft:smithing_transform",
-  "addition": {
-    "item": "minecraft:netherite_ingot"
-  },
+  "type": "minecraft:smithing",
   "base": {
     "item": "orelocator:diamond_ore_locator"
   },
+  "addition": {
+    "item": "minecraft:netherite_ingot"
+  },
   "result": {
     "item": "orelocator:netherite_ore_locator"
-  },
-  "template": {
-    "item": "minecraft:netherite_upgrade_smithing_template"
   }
 }

@@ -1,6 +1,5 @@
 package com.kompi.orelocator;
 
-import com.kompi.orelocator.init.ModCreativeTabs;
 import com.kompi.orelocator.init.ModItems;
 import com.kompi.orelocator.network.ModNetwork;
 import net.minecraftforge.common.MinecraftForge;
@@ -18,7 +17,6 @@ public class OreLocatorMod {
     public OreLocatorMod() {
         IEventBus modEventBus = FMLJavaModLoadingContext.get().getModEventBus();
         ModItems.ITEMS.register(modEventBus);
-        ModCreativeTabs.CREATIVE_TABS.register(modEventBus);
         ModNetwork.init();
         Config.register();
         MinecraftForge.EVENT_BUS.register(this);

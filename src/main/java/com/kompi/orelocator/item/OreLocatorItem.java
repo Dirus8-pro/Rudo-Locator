@@ -25,7 +25,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraftforge.common.Tags;
 import net.minecraftforge.network.PacketDistributor;
 import net.minecraftforge.registries.ForgeRegistries;
-import org.joml.Vector3f;
+import com.mojang.math.Vector3f;
 
 import javax.annotation.Nullable;
 import java.util.*;
@@ -100,9 +100,16 @@ public class OreLocatorItem extends Item {
                     Block block = state.getBlock();
 
                     // Является ли блок рудой: по тегу ИЛИ по имени
+                    // СТАЛО:
                     ResourceLocation blockId = ForgeRegistries.BLOCKS.getKey(block);
+                    String path = (blockId != null) ? blockId.getPath().toLowerCase() : "";
+
                     boolean isOre = state.is(Tags.Blocks.ORES)
-                            || (blockId != null && (blockId.getPath().endsWith("_ore") || block == Blocks.ANCIENT_DEBRIS));
+                            || state.is(Tags.Blocks.ORES_REDSTONE)
+                            || block == Blocks.ANCIENT_DEBRIS
+                            || path.endsWith("_ore")
+                            || path.startsWith("ore_")
+                            || path.contains("_ore_");
 
                     if (isOre) {
                         String shortKey = getOreTypeKey(state);
@@ -173,6 +180,10 @@ public class OreLocatorItem extends Item {
         if (block == Blocks.ANCIENT_DEBRIS) return "netherite";
         if (block == Blocks.NETHER_GOLD_ORE) return "nether_gold";
         if (block == Blocks.NETHER_QUARTZ_ORE) return "quartz";
+        ResourceLocation id = ForgeRegistries.BLOCKS.getKey(block);
+        if (id != null) {
+            return id.toString(); // Отдаем полный ID (например "create:zinc_ore")
+        }
         return null;
     }
 

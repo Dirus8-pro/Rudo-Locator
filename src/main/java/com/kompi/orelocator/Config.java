@@ -46,11 +46,6 @@ public class Config {
         SPEC = builder.build();
     }
 
-    public class OreFilterHolder {
-        private static CompoundTag currentFilter = new CompoundTag();
-        public static CompoundTag getFilter() { return currentFilter; }
-        public static void setFilter(CompoundTag filter) { currentFilter = filter; }
-    }
 
     public static void register() {
         ModLoadingContext.get().registerConfig(ModConfig.Type.COMMON, SPEC);

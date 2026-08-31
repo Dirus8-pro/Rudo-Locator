@@ -18,13 +18,13 @@ public class ModNetwork {
         CHANNEL.messageBuilder(OreHighlightPacket.class, 0)
                 .encoder(OreHighlightPacket::encode)
                 .decoder(OreHighlightPacket::decode)
-                .consumerNetworkThread(OreHighlightPacket::handle)
+                .consumer(OreHighlightPacket::handle)
                 .add();
 
         CHANNEL.messageBuilder(SyncOreFilterPacket.class, 1)
                 .encoder(SyncOreFilterPacket::encode)
                 .decoder(SyncOreFilterPacket::decode)
-                .consumerNetworkThread(SyncOreFilterPacket::handle)
+                .consumer(SyncOreFilterPacket::handle)
                 .add();
     }
 }
