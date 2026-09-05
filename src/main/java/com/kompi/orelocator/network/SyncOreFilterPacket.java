@@ -1,47 +1,51 @@
 package com.kompi.orelocator.network;
 
+import com.kompi.orelocator.OreLocatorMod;
 import com.kompi.orelocator.client.OreFilterHolder;
 import com.kompi.orelocator.xray.OreFilterStorage;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraftforge.network.NetworkEvent;
-import net.minecraftforge.network.PacketDistributor;
+import net.neoforged.neoforge.network.PacketDistributor;
+import net.neoforged.neoforge.network.handling.IPayloadContext;
 
-import java.util.function.Supplier;
+public record SyncOreFilterPacket(CompoundTag filter) implements CustomPacketPayload {
 
-public class SyncOreFilterPacket {
-    private final CompoundTag filter;
+    public static final Type<SyncOreFilterPacket> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(OreLocatorMod.MODID, "sync_ore_filter"));
 
-    public SyncOreFilterPacket(CompoundTag filter) {
-        this.filter = filter;
+    public static final StreamCodec<FriendlyByteBuf, SyncOreFilterPacket> STREAM_CODEC = StreamCodec.of(
+            SyncOreFilterPacket::encode,
+            SyncOreFilterPacket::decode
+    );
+
+    private static void encode(FriendlyByteBuf buf, SyncOreFilterPacket msg) {
+        buf.writeNbt(msg.filter());
     }
 
-    public CompoundTag getFilter() {
-        return filter;
+    private static SyncOreFilterPacket decode(FriendlyByteBuf buf) {
+        CompoundTag tag = buf.readNbt();
+        return new SyncOreFilterPacket(tag != null ? tag : new CompoundTag());
     }
 
-    public static void encode(SyncOreFilterPacket msg, FriendlyByteBuf buf) {
-        buf.writeNbt(msg.filter);
-    }
-
-    public static SyncOreFilterPacket decode(FriendlyByteBuf buf) {
-        return new SyncOreFilterPacket(buf.readNbt());
-    }
-
-    public static void handle(SyncOreFilterPacket msg, Supplier<NetworkEvent.Context> ctx) {
-        ctx.get().enqueueWork(() -> {
-            ServerPlayer player = ctx.get().getSender();
-            if (player != null) {
+    public static void handle(SyncOreFilterPacket msg, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            if (context.player() instanceof ServerPlayer player) {
                 // Серверная сторона: сохраняем в файл и рассылаем всем
-                OreFilterStorage.saveFilter(msg.filter);
-                player.getPersistentData().put("OreFilter", msg.filter);
-                ModNetwork.CHANNEL.send(PacketDistributor.ALL.noArg(), new SyncOreFilterPacket(msg.filter));
+                OreFilterStorage.saveFilter(msg.filter());
+                player.getPersistentData().put("OreFilter", msg.filter());
+                PacketDistributor.sendToAllPlayers(new SyncOreFilterPacket(msg.filter()));
             } else {
-                // Клиентская сторона: просто сохраняем в держатель
-                OreFilterHolder.setFilter(msg.filter);
+                // Клиентская сторона: сохраняем в клиентский держатель
+                OreFilterHolder.setFilter(msg.filter());
             }
         });
-        ctx.get().setPacketHandled(true);
+    }
+
+    @Override
+    public Type<? extends CustomPacketPayload> type() {
+        return TYPE;
     }
 }

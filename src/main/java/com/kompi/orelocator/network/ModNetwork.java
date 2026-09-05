@@ -1,30 +1,30 @@
 package com.kompi.orelocator.network;
 
 import com.kompi.orelocator.OreLocatorMod;
-import net.minecraft.resources.ResourceLocation;
-import net.minecraftforge.network.NetworkRegistry;
-import net.minecraftforge.network.simple.SimpleChannel;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
+import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
+@EventBusSubscriber(modid = OreLocatorMod.MODID)
 public class ModNetwork {
-    private static final String PROTOCOL_VERSION = "1";
-    public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
-            new ResourceLocation(OreLocatorMod.MODID, "main"),
-            () -> PROTOCOL_VERSION,
-            PROTOCOL_VERSION::equals,
-            PROTOCOL_VERSION::equals
-    );
 
-    public static void init() {
-        CHANNEL.messageBuilder(OreHighlightPacket.class, 0)
-                .encoder(OreHighlightPacket::encode)
-                .decoder(OreHighlightPacket::decode)
-                .consumerNetworkThread(OreHighlightPacket::handle)
-                .add();
+    @SubscribeEvent
+    public static void registerPayloads(RegisterPayloadHandlersEvent event) {
+        PayloadRegistrar registrar = event.registrar("1");
 
-        CHANNEL.messageBuilder(SyncOreFilterPacket.class, 1)
-                .encoder(SyncOreFilterPacket::encode)
-                .decoder(SyncOreFilterPacket::decode)
-                .consumerNetworkThread(SyncOreFilterPacket::handle)
-                .add();
+        // Отправка S2C (Server -> Client)
+        registrar.playToClient(
+                OreHighlightPacket.TYPE,
+                OreHighlightPacket.STREAM_CODEC,
+                OreHighlightPacket::handle
+        );
+
+        // Двунаправленная отправка C2S / S2C
+        registrar.playBidirectional(
+                SyncOreFilterPacket.TYPE,
+                SyncOreFilterPacket.STREAM_CODEC,
+                SyncOreFilterPacket::handle
+        );
     }
 }

@@ -1,17 +1,15 @@
 package com.kompi.orelocator.event;
 
-import com.kompi.orelocator.network.ModNetwork;
 import com.kompi.orelocator.network.SyncOreFilterPacket;
 import com.kompi.orelocator.xray.OreFilterStorage;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.player.Player;
-import net.minecraftforge.event.entity.player.PlayerEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.network.PacketDistributor;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.event.entity.player.PlayerEvent;
+import net.neoforged.neoforge.network.PacketDistributor;
 
-@Mod.EventBusSubscriber
+@EventBusSubscriber
 public class ServerEventHandler {
 
     @SubscribeEvent
@@ -32,8 +30,7 @@ public class ServerEventHandler {
         CompoundTag filter = OreFilterStorage.loadFilter();
         if (!filter.isEmpty()) {
             player.getPersistentData().put("OreFilter", filter);
-            ModNetwork.CHANNEL.send(PacketDistributor.PLAYER.with(() -> player),
-                    new SyncOreFilterPacket(filter));
+            PacketDistributor.sendToPlayer(player, new SyncOreFilterPacket(filter));
         }
     }
 }

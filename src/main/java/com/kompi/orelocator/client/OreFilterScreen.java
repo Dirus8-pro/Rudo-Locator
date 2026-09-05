@@ -9,22 +9,23 @@ import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.tags.TagKey;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraftforge.common.Tags;
-import net.minecraftforge.registries.ForgeRegistries;
+import net.neoforged.neoforge.network.PacketDistributor;
 
 import java.util.*;
 
 public class OreFilterScreen extends Screen {
-    private static final ResourceLocation GUI_TEXTURE = new ResourceLocation("orelocator", "textures/gui/ore_filter_gui.png");
-    private static final ResourceLocation GUI_TEXTURE_RGB = new ResourceLocation("orelocator", "textures/gui/ore_filter_gui_rgb.png");
+    private static final ResourceLocation GUI_TEXTURE = ResourceLocation.fromNamespaceAndPath("orelocator", "textures/gui/ore_filter_gui.png");
+    private static final ResourceLocation GUI_TEXTURE_RGB = ResourceLocation.fromNamespaceAndPath("orelocator", "textures/gui/ore_filter_gui_rgb.png");
 
     private final ItemStack locatorStack;
     private final Map<String, Boolean> filterState = new LinkedHashMap<>();
@@ -56,6 +57,8 @@ public class OreFilterScreen extends Screen {
     private int currentRadius;
     private int maxRadius;
     private EditBox radiusEdit;
+
+    private static final TagKey<Block> ORES_TAG = TagKey.create(BuiltInRegistries.BLOCK.key(), ResourceLocation.fromNamespaceAndPath("c", "ores"));
 
     private static final Map<String, Integer> DEFAULT_ORE_COLORS = new HashMap<>();
     static {
@@ -108,7 +111,6 @@ public class OreFilterScreen extends Screen {
 
         // Определяем радиус из конфига по типу предмета
         Item item = stack.getItem();
-        // Определяем радиусы
         if (item == ModItems.COPPER_ORE_LOCATOR.get()) {
             currentRadius = Config.COPPER_CURRENT_RADIUS.get();
             maxRadius = Config.COPPER_MAX_RADIUS.get();
@@ -132,10 +134,10 @@ public class OreFilterScreen extends Screen {
         Map<String, String> groupToId = new LinkedHashMap<>();
         for (String g : VANILLA_ORDER) groupToId.put(g, null);
 
-        for (Block block : ForgeRegistries.BLOCKS.getValues()) {
-            ResourceLocation id = ForgeRegistries.BLOCKS.getKey(block);
+        for (Block block : BuiltInRegistries.BLOCK) {
+            ResourceLocation id = BuiltInRegistries.BLOCK.getKey(block);
             if (id != null) {
-                boolean isOre = block.defaultBlockState().is(Tags.Blocks.ORES)
+                boolean isOre = block.defaultBlockState().is(ORES_TAG)
                         || id.getPath().endsWith("_ore")
                         || block == Blocks.ANCIENT_DEBRIS;
                 if (isOre) {
@@ -164,7 +166,7 @@ public class OreFilterScreen extends Screen {
             if (iconId != null) {
                 Component displayName = ORE_NAMES.getOrDefault(key, null);
                 if (displayName == null) {
-                    Block iconBlock = ForgeRegistries.BLOCKS.getValue(new ResourceLocation(iconId));
+                    Block iconBlock = BuiltInRegistries.BLOCK.get(ResourceLocation.parse(iconId));
                     displayName = iconBlock != null ? iconBlock.getName() : Component.literal(key);
                 }
                 oreEntries.add(new OreEntry(key, iconId, displayName));
@@ -197,7 +199,7 @@ public class OreFilterScreen extends Screen {
         if (block == Blocks.ANCIENT_DEBRIS) return "netherite";
         if (block == Blocks.NETHER_QUARTZ_ORE) return "quartz";
         if (block == Blocks.NETHER_GOLD_ORE) return "nether_gold";
-        ResourceLocation id = ForgeRegistries.BLOCKS.getKey(block);
+        ResourceLocation id = BuiltInRegistries.BLOCK.getKey(block);
         return id != null ? id.toString() : null;
     }
 
@@ -219,13 +221,10 @@ public class OreFilterScreen extends Screen {
                 if (!this.isVisible()) return;
 
                 Font font = Minecraft.getInstance().font;
-                // Включаем обрезку по размеру поля
                 graphics.enableScissor(this.getX(), this.getY(), this.getX() + this.width, this.getY() + this.height);
 
-                // Текст
                 graphics.drawString(font, this.getValue(), this.getX() + 4, this.getY() + (this.height - 8) / 2, 0xFFFFFF, false);
 
-                // Курсор
                 if (this.isFocused()) {
                     int cursorPos = this.getCursorPosition();
                     String text = this.getValue();
@@ -233,7 +232,6 @@ public class OreFilterScreen extends Screen {
                     graphics.fill(cursorX, this.getY() + (this.height - 8) / 2 - 1, cursorX + 1, this.getY() + (this.height + 8) / 2, 0xFFCCCCCC);
                 }
 
-                // Выключаем обрезку
                 graphics.disableScissor();
             }
         };
@@ -270,13 +268,13 @@ public class OreFilterScreen extends Screen {
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double delta) {
+    public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
         if (mouseY >= topPos + 12 && mouseY <= topPos + 12 + ICON_SIZE) {
-            if (delta < 0 && scrollOffset < oreEntries.size() - VISIBLE_ICONS) scrollOffset++;
-            else if (delta > 0 && scrollOffset > 0) scrollOffset--;
+            if (scrollY < 0 && scrollOffset < oreEntries.size() - VISIBLE_ICONS) scrollOffset++;
+            else if (scrollY > 0 && scrollOffset > 0) scrollOffset--;
             return true;
         }
-        return super.mouseScrolled(mouseX, mouseY, delta);
+        return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
     }
 
     @Override
@@ -368,8 +366,10 @@ public class OreFilterScreen extends Screen {
     }
 
     private void playClickSound() {
-        this.minecraft.getSoundManager().play(net.minecraft.client.resources.sounds.SimpleSoundInstance.forUI(
-                net.minecraft.sounds.SoundEvents.UI_BUTTON_CLICK, 1.0F));
+        if (this.minecraft != null) {
+            this.minecraft.getSoundManager().play(net.minecraft.client.resources.sounds.SimpleSoundInstance.forUI(
+                    net.minecraft.sounds.SoundEvents.UI_BUTTON_CLICK, 1.0F));
+        }
     }
 
     @Override
@@ -411,9 +411,17 @@ public class OreFilterScreen extends Screen {
         else if (activeSlider == 2) bVal = val;
     }
 
+    // ★ Переопределяем фон, чтобы убрать размытие
+    @Override
+    public void renderBackground(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        // Просто полупрозрачная подложка без blur
+        graphics.fill(0, 0, this.width, this.height, 0xC0101010);
+    }
+
     @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        this.renderBackground(graphics);
+        // Рисуем наш кастомный фон
+        this.renderBackground(graphics, mouseX, mouseY, partialTick);
 
         ResourceLocation currentTexture = colorPanelOpen ? GUI_TEXTURE_RGB : GUI_TEXTURE;
         graphics.blit(currentTexture, leftPos, topPos, 0, 0, 256, guiHeight, 256, 256);
@@ -540,12 +548,13 @@ public class OreFilterScreen extends Screen {
                     resetX, bottomY, 0xAAAAAA, false);
         }
 
-        // Отрисовка редактора радиуса
         graphics.drawString(this.font, Component.translatable("orelocator.gui.radius"),
                 leftPos + 85, topPos + guiHeight - 63, 0xFFFFFF, false);
-        radiusEdit.render(graphics, mouseX, mouseY, partialTick);
 
-        super.render(graphics, mouseX, mouseY, partialTick);
+        // Рендерим поле ввода вручную, без вызова super.render()
+        if (this.radiusEdit != null) {
+            this.radiusEdit.render(graphics, mouseX, mouseY, partialTick);
+        }
     }
 
     @Override
@@ -560,9 +569,12 @@ public class OreFilterScreen extends Screen {
         for (String key : oreColors.keySet()) {
             oreFilter.putInt(key + "_rgb_color", oreColors.get(key));
         }
-        // Сохраняем локально и отправляем на сервер
+
         OreFilterHolder.setFilter(oreFilter);
-        ModNetwork.CHANNEL.sendToServer(new SyncOreFilterPacket(oreFilter));
+        PacketDistributor.sendToServer(new SyncOreFilterPacket(oreFilter));
+
+        com.kompi.orelocator.event.HighlightedOreStorage.setNeedsRebuild(true);
+
         super.onClose();
     }
 
@@ -580,7 +592,7 @@ public class OreFilterScreen extends Screen {
 
         ItemStack getIconStack() {
             if (cachedStack == null) {
-                Block block = ForgeRegistries.BLOCKS.getValue(new ResourceLocation(iconBlockId));
+                Block block = BuiltInRegistries.BLOCK.get(ResourceLocation.parse(iconBlockId));
                 cachedStack = (block != null) ? new ItemStack(block.asItem()) : new ItemStack(Blocks.STONE);
             }
             return cachedStack;

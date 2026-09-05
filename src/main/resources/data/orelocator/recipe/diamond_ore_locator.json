@@ -1,0 +1,24 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "equipment",
+  "pattern": [
+    "DRD",
+    "DGD",
+    "DDD"
+  ],
+  "key": {
+    "D": {
+      "item": "minecraft:diamond_block"
+    },
+    "R": {
+      "item": "minecraft:redstone"
+    },
+    "G": {
+      "item": "orelocator:gold_ore_locator"
+    }
+  },
+  "result": {
+    "id": "orelocator:diamond_ore_locator",
+    "count": 1
+  }
+}

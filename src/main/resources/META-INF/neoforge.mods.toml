@@ -1,0 +1,38 @@
+modLoader="javafml"
+loaderVersion="[4,)"
+license="All rights reserved"
+
+[[mixins]]
+config="orelocator.mixins.json"
+
+[[mods]]
+modId="orelocator"
+version="1.1.0"
+displayName="Ore Locator"
+authors="Kompi"
+credits="Thanks to Gemini and DeepSeek for help with design and coding"
+description='''
+Adds powerful ore locators that scan the area and highlight all nearby ores through walls.
+Automatically detects modded ores from any mod.
+
+New in 1.1.0:
+- Increased radii: copper 8, iron 12, gold 24, diamond 40, netherite 64
+- Radius can be changed directly in the filter GUI (saved instantly)
+- Double-click during cooldown removes all highlights
+- Filter settings saved to config/orelocator/filter.json
+- No more settings reset when changing dimensions
+'''
+
+[[dependencies.orelocator]]
+modId="neoforge"
+type="required"
+versionRange="[21.1.0,)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.orelocator]]
+modId="minecraft"
+type="required"
+versionRange="[1.21.1]"
+ordering="NONE"
+side="BOTH"

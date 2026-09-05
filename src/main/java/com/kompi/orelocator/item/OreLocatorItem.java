@@ -1,37 +1,42 @@
 package com.kompi.orelocator.item;
 
-import com.kompi.orelocator.network.ModNetwork;
 import com.kompi.orelocator.network.OreHighlightPacket;
-import net.minecraft.client.Minecraft;
+import net.minecraft.ChatFormatting;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.particles.DustParticleOptions;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
-import net.minecraft.ChatFormatting;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.tags.TagKey;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResultHolder;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
+import net.minecraft.world.item.component.CustomData;
 import net.minecraft.world.level.Level;
-import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraftforge.common.Tags;
-import net.minecraftforge.network.PacketDistributor;
-import net.minecraftforge.registries.ForgeRegistries;
+import net.neoforged.neoforge.network.PacketDistributor;
 import org.joml.Vector3f;
 
-import javax.annotation.Nullable;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.function.Supplier;
 
 public class OreLocatorItem extends Item {
+    private static final TagKey<Block> C_ORES = TagKey.create(Registries.BLOCK, ResourceLocation.fromNamespaceAndPath("c", "ores"));
     private final Supplier<Integer> radiusSupplier;
     private final float[] color;
 
@@ -48,11 +53,13 @@ public class OreLocatorItem extends Item {
         ItemStack stack = player.getItemInHand(hand);
         if (!level.isClientSide) {
             long currentTime = level.getGameTime();
-            CompoundTag tag = stack.getOrCreateTag();
+            CustomData customData = stack.getOrDefault(DataComponents.CUSTOM_DATA, CustomData.EMPTY);
+            CompoundTag tag = customData.copyTag();
             long lastUse = tag.getLong("LastUseTime");
+
             if (currentTime - lastUse >= 600) {
                 // Обычное сканирование
-                tag.putLong("LastUseTime", currentTime);
+                CustomData.update(DataComponents.CUSTOM_DATA, stack, dataTag -> dataTag.putLong("LastUseTime", currentTime));
                 int customRadius = tag.getInt("CustomRadius");
                 int actualRadius = customRadius > 0 ? customRadius : radiusSupplier.get();
                 scanOres(level, player, actualRadius, stack);
@@ -62,10 +69,7 @@ public class OreLocatorItem extends Item {
                 Long lastFailed = lastFailedUse.get(player);
                 if (lastFailed != null && (now - lastFailed) < 500) {
                     // Двойной клик — убрать подсветку
-                    ModNetwork.CHANNEL.send(
-                            PacketDistributor.PLAYER.with(() -> (ServerPlayer) player),
-                            new OreHighlightPacket(Collections.emptyList(), level.getGameTime())
-                    );
+                    PacketDistributor.sendToPlayer((ServerPlayer) player, new OreHighlightPacket(Collections.emptyList(), level.getGameTime()));
                     lastFailedUse.remove(player);
                 } else {
                     // Первый клик — показать сообщение
@@ -100,9 +104,11 @@ public class OreLocatorItem extends Item {
                     Block block = state.getBlock();
 
                     // Является ли блок рудой: по тегу ИЛИ по имени
-                    ResourceLocation blockId = ForgeRegistries.BLOCKS.getKey(block);
-                    boolean isOre = state.is(Tags.Blocks.ORES)
-                            || (blockId != null && (blockId.getPath().endsWith("_ore") || block == Blocks.ANCIENT_DEBRIS));
+                    ResourceLocation blockId = BuiltInRegistries.BLOCK.getKey(block);
+                    boolean isOre = state.is(C_ORES)
+                            || (blockId != null && (blockId.getPath().endsWith("_ore") || block == Blocks.ANCIENT_DEBRIS))
+                            || (blockId != null && (blockId.getPath().endsWith("ore_") || block == Blocks.ANCIENT_DEBRIS))
+                            || (blockId != null && (blockId.getPath().endsWith("_ore_") || block == Blocks.ANCIENT_DEBRIS));
 
                     if (isOre) {
                         String shortKey = getOreTypeKey(state);
@@ -118,10 +124,7 @@ public class OreLocatorItem extends Item {
             }
         }
 
-        ModNetwork.CHANNEL.send(
-                PacketDistributor.PLAYER.with(() -> serverPlayer),
-                new OreHighlightPacket(oreList, level.getGameTime())
-        );
+        PacketDistributor.sendToPlayer(serverPlayer, new OreHighlightPacket(oreList, level.getGameTime()));
     }
 
     private void spawnRadarWave(ServerLevel level, Player player, int radius) {
@@ -177,14 +180,14 @@ public class OreLocatorItem extends Item {
     }
 
     @Override
-    public void appendHoverText(ItemStack stack, @Nullable Level level, List<Component> tooltip, TooltipFlag flag) {
+    public void appendHoverText(ItemStack stack, TooltipContext context, List<Component> tooltip, TooltipFlag flag) {
         if (Screen.hasShiftDown()) {
             tooltip.add(Component.translatable("tooltip.orelocator.radius", radiusSupplier.get()).withStyle(ChatFormatting.GRAY));
             tooltip.add(Component.translatable("tooltip.orelocator.cooldown").withStyle(ChatFormatting.GRAY));
 
             CompoundTag oreFilter = new CompoundTag();
-            if (Minecraft.getInstance().player != null) {
-                oreFilter = Minecraft.getInstance().player.getPersistentData().getCompound("OreFilter");
+            if (net.minecraft.client.Minecraft.getInstance().player != null) {
+                oreFilter = net.minecraft.client.Minecraft.getInstance().player.getPersistentData().getCompound("OreFilter");
             }
             int disabledCount = 0;
             for (String key : oreFilter.getAllKeys()) {
@@ -200,11 +203,12 @@ public class OreLocatorItem extends Item {
 
     @Override
     public boolean isBarVisible(ItemStack stack) {
-        CompoundTag tag = stack.getTag();
-        if (tag == null) return false;
+        CustomData customData = stack.get(DataComponents.CUSTOM_DATA);
+        if (customData == null) return false;
+        CompoundTag tag = customData.copyTag();
         long lastUse = tag.getLong("LastUseTime");
         if (lastUse == 0) return false;
-        Minecraft mc = Minecraft.getInstance();
+        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
         if (mc.level == null) return false;
         long currentTime = mc.level.getGameTime();
         return (currentTime - lastUse) < 600;
@@ -212,16 +216,17 @@ public class OreLocatorItem extends Item {
 
     @Override
     public int getBarWidth(ItemStack stack) {
-        CompoundTag tag = stack.getTag();
-        if (tag == null) return 0;
+        CustomData customData = stack.get(DataComponents.CUSTOM_DATA);
+        if (customData == null) return 0;
+        CompoundTag tag = customData.copyTag();
         long lastUse = tag.getLong("LastUseTime");
         if (lastUse == 0) return 0;
-        Minecraft mc = Minecraft.getInstance();
+        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
         if (mc.level == null) return 0;
         long currentTime = mc.level.getGameTime();
         long elapsed = currentTime - lastUse;
         if (elapsed >= 600) return 0;
-        return Math.round(13.0F * (1.0F - (float)elapsed / 600.0F));
+        return Math.round(13.0F * (1.0F - (float) elapsed / 600.0F));
     }
 
     @Override

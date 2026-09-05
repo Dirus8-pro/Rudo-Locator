@@ -1,23 +1,27 @@
 package com.kompi.orelocator.network;
 
+import com.kompi.orelocator.OreLocatorMod;
+import com.kompi.orelocator.event.HighlightedOreStorage;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.FriendlyByteBuf;
-import net.minecraftforge.network.NetworkEvent;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.ResourceLocation;
+import net.neoforged.neoforge.network.handling.IPayloadContext;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.function.Supplier;
 
-public class OreHighlightPacket {
-    private final List<BlockPos> orePositions;
-    private final long gameTime;
+public record OreHighlightPacket(List<BlockPos> orePositions, long gameTime) implements CustomPacketPayload {
 
-    public OreHighlightPacket(List<BlockPos> orePositions, long gameTime) {
-        this.orePositions = orePositions;
-        this.gameTime = gameTime;
-    }
+    public static final Type<OreHighlightPacket> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(OreLocatorMod.MODID, "ore_highlight"));
 
-    public static void encode(OreHighlightPacket msg, FriendlyByteBuf buf) {
+    public static final StreamCodec<FriendlyByteBuf, OreHighlightPacket> STREAM_CODEC = StreamCodec.of(
+            OreHighlightPacket::encode,
+            OreHighlightPacket::decode
+    );
+
+    private static void encode(FriendlyByteBuf buf, OreHighlightPacket msg) {
         buf.writeLong(msg.gameTime);
         buf.writeVarInt(msg.orePositions.size());
         for (BlockPos pos : msg.orePositions) {
@@ -25,7 +29,7 @@ public class OreHighlightPacket {
         }
     }
 
-    public static OreHighlightPacket decode(FriendlyByteBuf buf) {
+    private static OreHighlightPacket decode(FriendlyByteBuf buf) {
         long time = buf.readLong();
         int size = buf.readVarInt();
         List<BlockPos> positions = new ArrayList<>(size);
@@ -35,11 +39,14 @@ public class OreHighlightPacket {
         return new OreHighlightPacket(positions, time);
     }
 
-    public static void handle(OreHighlightPacket msg, Supplier<NetworkEvent.Context> ctx) {
-        ctx.get().enqueueWork(() -> {
-            // Клиентская обработка – сохраняем список в статическое поле
-            com.kompi.orelocator.event.ClientModEvents.setHighlightedOres(msg.orePositions, msg.gameTime);
+    public static void handle(OreHighlightPacket msg, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            HighlightedOreStorage.setOres(msg.orePositions(), msg.gameTime());
         });
-        ctx.get().setPacketHandled(true);
+    }
+
+    @Override
+    public Type<? extends CustomPacketPayload> type() {
+        return TYPE;
     }
 }
